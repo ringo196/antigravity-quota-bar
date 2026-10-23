@@ -132,6 +132,7 @@ function formatTimeRemaining(resetTime?: Date): string {
 function renderStatusBar() {
   if (!lastSummary) {
     statusBarItem.text = '$(sparkle) AGQ: No Data';
+    statusBarItem.tooltip = 'Connected to Antigravity Language Server, but no quota data was returned. Click to refresh.';
     statusBarItem.show();
     return;
   }

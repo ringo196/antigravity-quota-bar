@@ -13,17 +13,17 @@ export async function fetchQuotaSummary(conn: ServerConnection): Promise<QuotaSu
   // Strategy 1: Try RetrieveUserQuotaSummary (Preferred unified endpoint)
   try {
     const summary = await requestRetrieveUserQuotaSummary(conn);
-    if (summary && summary.pools.length > 0) {
+    if (summary && summary.pools.some((p) => p.isAvailable)) {
       return summary;
     }
   } catch (err) {
-    // Fall back to GetUserStatus
+    console.debug('[AntigravityQuota] RetrieveUserQuotaSummary failed:', err);
   }
 
   // Strategy 2: Fall back to GetUserStatus
   try {
     const userStatus = await requestGetUserStatus(conn);
-    if (userStatus && userStatus.pools.length > 0) {
+    if (userStatus && userStatus.pools.some((p) => p.isAvailable)) {
       return userStatus;
     }
   } catch (err) {
@@ -95,7 +95,9 @@ async function postConnectRpc<T>(
   try {
     return await makeRequest(conn.isHttps);
   } catch (err) {
-    return await makeRequest(!conn.isHttps);
+    const res = await makeRequest(!conn.isHttps);
+    conn.isHttps = !conn.isHttps;
+    return res;
   }
 }
 
@@ -103,8 +105,8 @@ async function postConnectRpc<T>(
  * Calls RetrieveUserQuotaSummary
  */
 async function requestRetrieveUserQuotaSummary(conn: ServerConnection): Promise<QuotaSummary> {
-  const raw = await postConnectRpc<{ groups?: any[] }>(conn, 'RetrieveUserQuotaSummary', {});
-  const groups = raw.groups || [];
+  const raw = await postConnectRpc<any>(conn, 'RetrieveUserQuotaSummary', {});
+  const groups = raw?.response?.groups || raw?.groups || [];
 
   const poolsMap: Map<string, PoolQuota> = new Map([
     ['gemini', { id: 'gemini', label: 'Gemini', shortLabel: 'Gem', isAvailable: false }],
@@ -113,26 +115,42 @@ async function requestRetrieveUserQuotaSummary(conn: ServerConnection): Promise<
   ]);
 
   for (const group of groups) {
-    const id = (group.id || '').toLowerCase();
-    const label = (group.label || '').toLowerCase();
+    const id = (group.id || group.groupId || '').toLowerCase();
+    const label = (group.displayName || group.label || group.name || '').toLowerCase();
+    const desc = (group.description || '').toLowerCase();
 
     let targetPoolId: string | null = null;
-    if (id.includes('argon') || label.includes('argon')) {
+    if (id.includes('argon') || label.includes('argon') || desc.includes('argon')) {
       targetPoolId = 'argon';
-    } else if (id.includes('gemini') || label.includes('gemini')) {
+    } else if (id.includes('gemini') || label.includes('gemini') || desc.includes('gemini')) {
       targetPoolId = 'gemini';
     } else if (
       id.includes('claude') ||
       id.includes('gpt') ||
+      id.includes('3p') ||
       label.includes('claude') ||
-      label.includes('gpt')
+      label.includes('gpt') ||
+      label.includes('3p') ||
+      desc.includes('claude') ||
+      desc.includes('gpt')
     ) {
       targetPoolId = 'gpt';
     }
 
-    if (!targetPoolId) continue;
+    if (!targetPoolId) {
+      const genericId = id || label.replace(/\s+/g, '-').toLowerCase() || 'other';
+      targetPoolId = genericId;
+      if (!poolsMap.has(genericId)) {
+        poolsMap.set(genericId, {
+          id: genericId,
+          label: group.displayName || group.label || 'Other',
+          shortLabel: (group.displayName || group.label || 'Other').slice(0, 4),
+          isAvailable: false
+        });
+      }
+    }
 
-    const pool = poolsMap.get(targetPoolId);
+    const pool = targetPoolId ? poolsMap.get(targetPoolId) : undefined;
     if (!pool) continue;
 
     pool.isAvailable = true;
@@ -140,15 +158,17 @@ async function requestRetrieveUserQuotaSummary(conn: ServerConnection): Promise<
     const buckets = group.buckets || [];
     for (const b of buckets) {
       const windowStr = (b.window || '').toUpperCase();
+      const bucketId = (b.bucketId || '').toLowerCase();
       const fraction = typeof b.remainingFraction === 'number' ? b.remainingFraction : 1.0;
       const resetTime = b.resetTime ? new Date(b.resetTime) : undefined;
 
+      const isWeekly = windowStr.includes('WEEK') || bucketId.includes('week');
       const bucket: QuotaBucket = {
-        window: windowStr.includes('WEEK') ? 'weekly' : 'daily',
+        window: isWeekly ? 'weekly' : 'daily',
         remainingFraction: fraction,
         resetTime,
         rawWindow: b.window,
-        description: b.description
+        description: b.description || b.displayName
       };
 
       if (bucket.window === 'weekly') {
@@ -198,7 +218,7 @@ async function requestGetUserStatus(conn: ServerConnection): Promise<QuotaSummar
 
     if (!targetPoolId) continue;
 
-    const pool = poolsMap.get(targetPoolId);
+    const pool = targetPoolId ? poolsMap.get(targetPoolId) : undefined;
     if (!pool) continue;
 
     pool.isAvailable = true;
