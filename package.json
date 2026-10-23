@@ -1,9 +1,19 @@
 {
-  "name": "antigravity-quota-bar",
+  "name": "antigravity-quota-status-bar",
   "displayName": "Antigravity Quota Status Bar",
   "description": "Displays Google Antigravity and AI model quotas cleanly on the status bar grouped by pool.",
   "version": "0.1.0",
-  "publisher": "local-developer",
+  "publisher": "ringo196",
+  "author": "ringo196",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ringo196/antigravity-quota-bar.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ringo196/antigravity-quota-bar/issues"
+  },
+  "homepage": "https://github.com/ringo196/antigravity-quota-bar#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
