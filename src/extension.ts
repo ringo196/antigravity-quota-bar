@@ -294,6 +294,7 @@ function renderStatusBar() {
   const md = new vscode.MarkdownString(tooltipLines.join('\n'));
   md.isTrusted = true;
   md.supportHtml = true;
+  md.supportThemeIcons = true;
   statusBarItem.tooltip = md;
   statusBarItem.show();
 }
