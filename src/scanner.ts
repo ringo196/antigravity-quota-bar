@@ -55,20 +55,21 @@ async function probeServer(
       req.end();
     });
 
-  // Test HTTPS first
-  if (await tryProtocol(true, 'RetrieveUserQuotaSummary')) {
-    return { isHttps: true };
-  }
-  if (await tryProtocol(true, 'GetUserStatus')) {
-    return { isHttps: true };
-  }
-
-  // Fallback to HTTP
+  // Test HTTP first (preferred by agy hub)
   if (await tryProtocol(false, 'RetrieveUserQuotaSummary')) {
     return { isHttps: false };
   }
+  // Test HTTPS (preferred by language_server)
+  if (await tryProtocol(true, 'RetrieveUserQuotaSummary')) {
+    return { isHttps: true };
+  }
+
+  // Fallback endpoint checks
   if (await tryProtocol(false, 'GetUserStatus')) {
     return { isHttps: false };
+  }
+  if (await tryProtocol(true, 'GetUserStatus')) {
+    return { isHttps: true };
   }
 
   return null;
@@ -78,6 +79,7 @@ interface ProcessCandidate {
   pid: number;
   csrfToken: string;
   ports: number[];
+  priority: number;
 }
 
 /**
@@ -109,9 +111,10 @@ async function scanUnix(): Promise<ServerConnection | null> {
 
     for (const line of lines) {
       if (
-        line.includes('language_server') &&
+        (line.includes('language_server') || line.includes('agy') || line.includes('antigravity')) &&
         !line.includes('grep') &&
-        !line.includes('antigravity-quota')
+        !line.includes('/dist/extension.js') &&
+        !line.includes('node ')
       ) {
         const pidMatch = line.trim().match(/^(\d+)/);
         if (!pidMatch) continue;
@@ -119,15 +122,20 @@ async function scanUnix(): Promise<ServerConnection | null> {
 
         // Extract CSRF token
         let csrfToken = '';
-        const tokenMatch = line.match(/--csrf_token[=\s]+([^\s]+)/);
+        const tokenMatch = line.match(/--csrf_token[=\s]+([a-zA-Z0-9-]+)/);
         if (tokenMatch) {
           csrfToken = tokenMatch[1];
         }
 
-        // Query listening ports for this PID using lsof
-        // NOTE: We do NOT use --extension_server_port because that is the parent IDE's port,
-        // not the language server's own listening socket.
         const ports: number[] = [];
+
+        // Check if explicit hub port was passed to agy/language_server
+        const hubPortMatch = line.match(/--(?:hub-)?port[=\s]+(\d+)/);
+        if (hubPortMatch) {
+          ports.push(parseInt(hubPortMatch[1], 10));
+        }
+
+        // Query listening ports for this PID using lsof
         try {
           const { stdout: lsofOut } = await execAsync(
             `lsof -nP -p ${pid} -a -iTCP -sTCP:LISTEN 2>/dev/null || true`
@@ -144,10 +152,26 @@ async function scanUnix(): Promise<ServerConnection | null> {
         }
 
         if (ports.length > 0) {
-          candidates.push({ pid, csrfToken, ports });
+          const isAgy = line.includes('agy') || line.includes('--hub');
+          const cwd = process.cwd();
+          const hasMatchingWorkspace = cwd && line.includes(cwd);
+
+          let priority = 10;
+          if (isAgy && hasMatchingWorkspace) {
+            priority = 100;
+          } else if (isAgy) {
+            priority = 80;
+          } else if (hasMatchingWorkspace) {
+            priority = 50;
+          }
+
+          candidates.push({ pid, csrfToken, ports, priority });
         }
       }
     }
+
+    // Sort so active workspace agy hub processes are evaluated first
+    candidates.sort((a, b) => b.priority - a.priority);
 
     // Probe candidate processes and ports to find an active Connect-RPC server
     for (const candidate of candidates) {
@@ -170,7 +194,7 @@ async function scanUnix(): Promise<ServerConnection | null> {
         pid: candidates[0].pid,
         port: candidates[0].ports[0],
         csrfToken: candidates[0].csrfToken,
-        isHttps: true
+        isHttps: false
       };
     }
   } catch (err) {
@@ -185,7 +209,7 @@ async function scanUnix(): Promise<ServerConnection | null> {
  */
 async function scanWindows(): Promise<ServerConnection | null> {
   try {
-    const cmd = `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*language_server*' } | Select-Object ProcessId, CommandLine | ConvertTo-Json"`;
+    const cmd = `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*language_server*' -or $_.CommandLine -like '*agy*' -or $_.CommandLine -like '*antigravity*' } | Select-Object ProcessId, CommandLine | ConvertTo-Json"`;
     const { stdout } = await execAsync(cmd);
     if (!stdout.trim()) return null;
 
@@ -206,12 +230,17 @@ async function scanWindows(): Promise<ServerConnection | null> {
       if (!commandLine || !pid) continue;
 
       let csrfToken = '';
-      const tokenMatch = commandLine.match(/--csrf_token[=\s]+([^\s]+)/);
+      const tokenMatch = commandLine.match(/--csrf_token[=\s]+([a-zA-Z0-9-]+)/);
       if (tokenMatch) {
         csrfToken = tokenMatch[1];
       }
 
       const ports: number[] = [];
+      const hubPortMatch = commandLine.match(/--(?:hub-)?port[=\s]+(\d+)/);
+      if (hubPortMatch) {
+        ports.push(parseInt(hubPortMatch[1], 10));
+      }
+
       try {
         const { stdout: netstatOut } = await execAsync(`netstat -ano | findstr ${pid}`);
         const portMatches = netstatOut.matchAll(/(?:127\.0\.0\.1|\[::1\]):(\d+)\s+.*LISTENING/gi);
@@ -226,9 +255,25 @@ async function scanWindows(): Promise<ServerConnection | null> {
       }
 
       if (ports.length > 0) {
-        candidates.push({ pid, csrfToken, ports });
+        const isAgy = commandLine.includes('agy') || commandLine.includes('--hub');
+        const cwd = process.cwd();
+        const hasMatchingWorkspace = cwd && commandLine.includes(cwd);
+
+        let priority = 10;
+        if (isAgy && hasMatchingWorkspace) {
+          priority = 100;
+        } else if (isAgy) {
+          priority = 80;
+        } else if (hasMatchingWorkspace) {
+          priority = 50;
+        }
+
+        candidates.push({ pid, csrfToken, ports, priority });
       }
     }
+
+    // Sort candidates by priority
+    candidates.sort((a, b) => b.priority - a.priority);
 
     // Probe candidate processes and ports
     for (const candidate of candidates) {
@@ -251,7 +296,7 @@ async function scanWindows(): Promise<ServerConnection | null> {
         pid: candidates[0].pid,
         port: candidates[0].ports[0],
         csrfToken: candidates[0].csrfToken,
-        isHttps: true
+        isHttps: false
       };
     }
   } catch (err) {

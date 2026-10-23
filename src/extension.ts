@@ -195,7 +195,7 @@ function renderStatusBar() {
     if (showWeekly && pool.weekly) {
       const pct = Math.round(pool.weekly.remainingFraction * 100);
       const timerStr = showResetTimer && pool.weekly.resetTime ? ` (${formatTimeRemaining(pool.weekly.resetTime)})` : '';
-      poolTokens.push(showDaily && pool.daily ? `${pct}%w${timerStr}` : `${pct}%${timerStr}`);
+      poolTokens.push(showDaily ? `${pct}%w${timerStr}` : `${pct}%${timerStr}`);
     }
 
     // Fallback: If pool only has weekly (e.g. Argon) and user selected daily only, show its available quota with tag
