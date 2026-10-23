@@ -12,6 +12,7 @@ export interface PoolQuota {
   id: 'gemini' | 'gpt' | 'argon' | string;
   label: string;
   shortLabel: string;
+  icon?: string;
   daily?: QuotaBucket;
   weekly?: QuotaBucket;
   isAvailable: boolean;

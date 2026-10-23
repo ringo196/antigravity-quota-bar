@@ -127,12 +127,31 @@ function formatTimeRemaining(resetTime?: Date): string {
 }
 
 /**
+ * Returns a color status emoji dot based on remaining fraction.
+ */
+function getStatusBadge(fraction: number): string {
+  if (fraction <= 0.15) return '🔴';
+  if (fraction <= 0.40) return '🟡';
+  return '🟢';
+}
+
+/**
+ * Generates a Unicode progress bar (e.g., ████████░░).
+ */
+function getProgressBar(fraction: number, length: number = 8): string {
+  const filled = Math.max(0, Math.min(length, Math.round(fraction * length)));
+  const empty = length - filled;
+  return '█'.repeat(filled) + '░'.repeat(empty);
+}
+
+/**
  * Renders the status bar item based on current settings and quota data.
  */
 function renderStatusBar() {
   if (!lastSummary) {
     statusBarItem.text = '$(sparkle) AGQ: No Data';
     statusBarItem.tooltip = 'Connected to Antigravity Language Server, but no quota data was returned. Click to refresh.';
+    statusBarItem.backgroundColor = undefined;
     statusBarItem.show();
     return;
   }
@@ -141,6 +160,8 @@ function renderStatusBar() {
   const showDaily = config.get<boolean>('showDaily', true);
   const showWeekly = config.get<boolean>('showWeekly', true);
   const showResetTimer = config.get<boolean>('showResetTimer', false);
+  const showIcons = config.get<boolean>('showIcons', true);
+  const highlightLowQuota = config.get<boolean>('highlightLowQuota', true);
 
   const showGemini = config.get<boolean>('showGemini', true);
   const showGpt = config.get<boolean>('showGpt', true);
@@ -153,29 +174,37 @@ function renderStatusBar() {
   };
 
   const parts: string[] = [];
+  let hasCriticalQuota = false;
+
   const tooltipLines: string[] = [
-    '### Antigravity AI Quotas',
+    '## Antigravity AI Quotas',
     '',
-    `*Updated: ${lastSummary.updatedAt.toLocaleTimeString()}*`,
+    `*Last synchronized: ${lastSummary.updatedAt.toLocaleTimeString()}*`,
     '',
-    '| Pool | Window | Quota | Resets in |',
-    '| :--- | :--- | :--- | :--- |'
+    '| Status | Pool | Window | Quota | Remaining | Resets In |',
+    '| :---: | :--- | :--- | :---: | :--- | :--- |'
   ];
 
   for (const pool of lastSummary.pools) {
+    const iconPrefix = showIcons && pool.icon ? `${pool.icon} ` : '';
+
     // Build tooltip rows regardless of status bar visibility
     if (pool.daily) {
       const pct = Math.round(pool.daily.remainingFraction * 100);
       const reset = formatTimeRemaining(pool.daily.resetTime);
-      tooltipLines.push(`| **${pool.label}** | Daily (5h) | ${pct}% | ${reset || 'N/A'} |`);
+      const badge = getStatusBadge(pool.daily.remainingFraction);
+      const bar = `\`${getProgressBar(pool.daily.remainingFraction)}\``;
+      tooltipLines.push(`| ${badge} | **${iconPrefix}${pool.label}** | Daily (5h) | ${pct}% | ${bar} | ${reset || 'N/A'} |`);
     }
     if (pool.weekly) {
       const pct = Math.round(pool.weekly.remainingFraction * 100);
       const reset = formatTimeRemaining(pool.weekly.resetTime);
-      tooltipLines.push(`| **${pool.label}** | Weekly | ${pct}% | ${reset || 'N/A'} |`);
+      const badge = getStatusBadge(pool.weekly.remainingFraction);
+      const bar = `\`${getProgressBar(pool.weekly.remainingFraction)}\``;
+      tooltipLines.push(`| ${badge} | **${iconPrefix}${pool.label}** | Weekly | ${pct}% | ${bar} | ${reset || 'N/A'} |`);
     }
     if (!pool.daily && !pool.weekly) {
-      tooltipLines.push(`| **${pool.label}** | - | N/A | - |`);
+      tooltipLines.push(`| ⚪ | **${iconPrefix}${pool.label}** | - | N/A | \`░░░░░░░░\` | - |`);
     }
 
     // Check if user enabled this pool for status bar display
@@ -184,50 +213,69 @@ function renderStatusBar() {
 
     const poolTokens: string[] = [];
 
+    // Helper to format token with color warning badge
+    const formatToken = (fraction: number, suffix: string, resetTime?: Date) => {
+      const pct = Math.round(fraction * 100);
+      const timerStr = showResetTimer && resetTime ? ` (${formatTimeRemaining(resetTime)})` : '';
+      let badge = '';
+      if (highlightLowQuota) {
+        if (fraction <= 0.10) {
+          badge = '🔴 ';
+          hasCriticalQuota = true;
+        } else if (fraction <= 0.20) {
+          badge = '🟡 ';
+        }
+      }
+      return `${badge}${pct}%${suffix}${timerStr}`;
+    };
+
     // Daily
     if (showDaily && pool.daily) {
-      const pct = Math.round(pool.daily.remainingFraction * 100);
-      const timerStr = showResetTimer && pool.daily.resetTime ? ` (${formatTimeRemaining(pool.daily.resetTime)})` : '';
-      poolTokens.push(showWeekly && pool.weekly ? `${pct}%d${timerStr}` : `${pct}%${timerStr}`);
+      const suffix = showWeekly && pool.weekly ? 'd' : '';
+      poolTokens.push(formatToken(pool.daily.remainingFraction, suffix, pool.daily.resetTime));
     }
 
     // Weekly
     if (showWeekly && pool.weekly) {
-      const pct = Math.round(pool.weekly.remainingFraction * 100);
-      const timerStr = showResetTimer && pool.weekly.resetTime ? ` (${formatTimeRemaining(pool.weekly.resetTime)})` : '';
-      poolTokens.push(showDaily ? `${pct}%w${timerStr}` : `${pct}%${timerStr}`);
+      const suffix = showDaily ? 'w' : '';
+      poolTokens.push(formatToken(pool.weekly.remainingFraction, suffix, pool.weekly.resetTime));
     }
 
     // Fallback: If pool only has weekly (e.g. Argon) and user selected daily only, show its available quota with tag
     if (poolTokens.length === 0) {
       if (pool.weekly && !pool.daily) {
-        const pct = Math.round(pool.weekly.remainingFraction * 100);
-        const timerStr = showResetTimer && pool.weekly.resetTime ? ` (${formatTimeRemaining(pool.weekly.resetTime)})` : '';
-        poolTokens.push(`${pct}%w${timerStr}`);
+        poolTokens.push(formatToken(pool.weekly.remainingFraction, 'w', pool.weekly.resetTime));
       } else if (pool.daily && !pool.weekly) {
-        const pct = Math.round(pool.daily.remainingFraction * 100);
-        const timerStr = showResetTimer && pool.daily.resetTime ? ` (${formatTimeRemaining(pool.daily.resetTime)})` : '';
-        poolTokens.push(`${pct}%d${timerStr}`);
+        poolTokens.push(formatToken(pool.daily.remainingFraction, 'd', pool.daily.resetTime));
       } else {
         // Pool is enabled by user, but not active or no quota data returned
         poolTokens.push('N/A');
       }
     }
 
-    parts.push(`${pool.shortLabel}: ${poolTokens.join(' ')}`);
+    const shortPrefix = showIcons && pool.icon ? `${pool.icon} ` : '';
+    parts.push(`${shortPrefix}${pool.shortLabel}: ${poolTokens.join(' · ')}`);
   }
 
   if (parts.length === 0) {
     statusBarItem.text = '$(sparkle) AGQ: None Selected';
+    statusBarItem.backgroundColor = undefined;
   } else {
-    statusBarItem.text = `$(sparkle) ${parts.join(' | ')}`;
+    statusBarItem.text = parts.join('   |   ');
+    if (hasCriticalQuota && highlightLowQuota) {
+      statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    } else {
+      statusBarItem.backgroundColor = undefined;
+    }
   }
 
   tooltipLines.push('');
-  tooltipLines.push('*(Click status bar item to toggle pools, windows, or refresh)*');
+  tooltipLines.push('---');
+  tooltipLines.push('[$(sync) Refresh Quotas](command:antigravityQuota.refresh) &nbsp;&nbsp;|&nbsp;&nbsp; [$(gear) Preferences & Toggles](command:antigravityQuota.showMenu)');
 
   const md = new vscode.MarkdownString(tooltipLines.join('\n'));
   md.isTrusted = true;
+  md.supportHtml = true;
   statusBarItem.tooltip = md;
   statusBarItem.show();
 }
@@ -240,6 +288,8 @@ async function showQuickMenu() {
   const showDaily = config.get<boolean>('showDaily', true);
   const showWeekly = config.get<boolean>('showWeekly', true);
   const showResetTimer = config.get<boolean>('showResetTimer', false);
+  const showIcons = config.get<boolean>('showIcons', true);
+  const highlightLowQuota = config.get<boolean>('highlightLowQuota', true);
 
   const showGemini = config.get<boolean>('showGemini', true);
   const showGpt = config.get<boolean>('showGpt', true);
@@ -282,12 +332,9 @@ async function showQuickMenu() {
       actionType: 'toggle',
       key: 'showArgon',
       currentValue: showArgon
-    }
-  ];
-
-  items.push(
+    },
     {
-      label: 'DISPLAY WINDOWS',
+      label: 'DISPLAY WINDOWS & FORMATTING',
       kind: vscode.QuickPickItemKind.Separator,
       actionType: 'info'
     },
@@ -304,6 +351,20 @@ async function showQuickMenu() {
       actionType: 'toggle',
       key: 'showWeekly',
       currentValue: showWeekly
+    },
+    {
+      label: `${showIcons ? '$(check) ' : '$(circle-slash) '}Show Model Icons`,
+      description: 'Display icons for Gemini, Claude/GPT, and Argon',
+      actionType: 'toggle',
+      key: 'showIcons',
+      currentValue: showIcons
+    },
+    {
+      label: `${highlightLowQuota ? '$(check) ' : '$(circle-slash) '}Highlight Low Quotas`,
+      description: 'Color-code warnings (🔴 / 🟡) when quota is running low',
+      actionType: 'toggle',
+      key: 'highlightLowQuota',
+      currentValue: highlightLowQuota
     },
     {
       label: `${showResetTimer ? '$(check) ' : '$(circle-slash) '}Show Reset Timer`,
@@ -327,7 +388,7 @@ async function showQuickMenu() {
       description: 'Configure polling interval and preferences',
       actionType: 'settings'
     }
-  );
+  ];
 
   const selected = await vscode.window.showQuickPick(items, {
     placeHolder: 'Antigravity Quota Options'

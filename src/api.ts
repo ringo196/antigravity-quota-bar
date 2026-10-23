@@ -109,9 +109,9 @@ async function requestRetrieveUserQuotaSummary(conn: ServerConnection): Promise<
   const groups = raw?.response?.groups || raw?.groups || [];
 
   const poolsMap: Map<string, PoolQuota> = new Map([
-    ['gemini', { id: 'gemini', label: 'Gemini', shortLabel: 'Gemini', isAvailable: false }],
-    ['gpt', { id: 'gpt', label: 'Claude/GPT', shortLabel: 'Claude/GPT', isAvailable: false }],
-    ['argon', { id: 'argon', label: 'Argon', shortLabel: 'Argon', isAvailable: false }]
+    ['gemini', { id: 'gemini', label: 'Gemini Models', shortLabel: 'Gemini', icon: '$(sparkle)', isAvailable: false }],
+    ['gpt', { id: 'gpt', label: 'Claude & GPT Models', shortLabel: 'Claude/GPT', icon: '$(hubot)', isAvailable: false }],
+    ['argon', { id: 'argon', label: 'Gemini 4 Argon', shortLabel: 'Argon', icon: '$(zap)', isAvailable: false }]
   ]);
 
   for (const group of groups) {
@@ -197,9 +197,9 @@ async function requestGetUserStatus(conn: ServerConnection): Promise<QuotaSummar
     [];
 
   const poolsMap: Map<string, PoolQuota> = new Map([
-    ['gemini', { id: 'gemini', label: 'Gemini', shortLabel: 'Gemini', isAvailable: false }],
-    ['gpt', { id: 'gpt', label: 'Claude/GPT', shortLabel: 'Claude/GPT', isAvailable: false }],
-    ['argon', { id: 'argon', label: 'Argon', shortLabel: 'Argon', isAvailable: false }]
+    ['gemini', { id: 'gemini', label: 'Gemini Models', shortLabel: 'Gemini', icon: '$(sparkle)', isAvailable: false }],
+    ['gpt', { id: 'gpt', label: 'Claude & GPT Models', shortLabel: 'Claude/GPT', icon: '$(hubot)', isAvailable: false }],
+    ['argon', { id: 'argon', label: 'Gemini 4 Argon', shortLabel: 'Argon', icon: '$(zap)', isAvailable: false }]
   ]);
 
   for (const config of configs) {
