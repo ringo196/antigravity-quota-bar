@@ -234,7 +234,7 @@ function renderStatusBar() {
 
     const poolTokens: string[] = [];
 
-    // Format: [🟢/🟡/🔴] d/w 92% (1h 18m)
+    // Format: [🟢/🟡/🔴] 92%d (1h 18m)
     const formatToken = (fraction: number, windowTag: 'd' | 'w', resetTime?: Date) => {
       const pct = Math.round(fraction * 100);
       const timerStr = showResetTimer && resetTime ? ` (${formatTimeRemaining(resetTime)})` : '';
@@ -245,7 +245,7 @@ function renderStatusBar() {
           hasCriticalQuota = true;
         }
       }
-      return `${badge}${windowTag} ${pct}%${timerStr}`;
+      return `${badge}${pct}%${windowTag}${timerStr}`;
     };
 
     // Daily
