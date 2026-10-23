@@ -109,8 +109,8 @@ async function requestRetrieveUserQuotaSummary(conn: ServerConnection): Promise<
   const groups = raw?.response?.groups || raw?.groups || [];
 
   const poolsMap: Map<string, PoolQuota> = new Map([
-    ['gemini', { id: 'gemini', label: 'Gemini', shortLabel: 'Gem', isAvailable: false }],
-    ['gpt', { id: 'gpt', label: 'GPT / Claude', shortLabel: 'GPT', isAvailable: false }],
+    ['gemini', { id: 'gemini', label: 'Gemini', shortLabel: 'Gemini', isAvailable: false }],
+    ['gpt', { id: 'gpt', label: 'Claude/GPT', shortLabel: 'Claude/GPT', isAvailable: false }],
     ['argon', { id: 'argon', label: 'Argon', shortLabel: 'Argon', isAvailable: false }]
   ]);
 
@@ -197,8 +197,8 @@ async function requestGetUserStatus(conn: ServerConnection): Promise<QuotaSummar
     [];
 
   const poolsMap: Map<string, PoolQuota> = new Map([
-    ['gemini', { id: 'gemini', label: 'Gemini', shortLabel: 'Gem', isAvailable: false }],
-    ['gpt', { id: 'gpt', label: 'GPT / Claude', shortLabel: 'GPT', isAvailable: false }],
+    ['gemini', { id: 'gemini', label: 'Gemini', shortLabel: 'Gemini', isAvailable: false }],
+    ['gpt', { id: 'gpt', label: 'Claude/GPT', shortLabel: 'Claude/GPT', isAvailable: false }],
     ['argon', { id: 'argon', label: 'Argon', shortLabel: 'Argon', isAvailable: false }]
   ]);
 

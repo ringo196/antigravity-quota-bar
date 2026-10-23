@@ -163,9 +163,6 @@ function renderStatusBar() {
   ];
 
   for (const pool of lastSummary.pools) {
-    // Check if pool is available in this editor environment (Argon may not be present in all IDEs)
-    if (!pool.isAvailable) continue;
-
     // Build tooltip rows regardless of status bar visibility
     if (pool.daily) {
       const pct = Math.round(pool.daily.remainingFraction * 100);
@@ -176,6 +173,9 @@ function renderStatusBar() {
       const pct = Math.round(pool.weekly.remainingFraction * 100);
       const reset = formatTimeRemaining(pool.weekly.resetTime);
       tooltipLines.push(`| **${pool.label}** | Weekly | ${pct}% | ${reset || 'N/A'} |`);
+    }
+    if (!pool.daily && !pool.weekly) {
+      tooltipLines.push(`| **${pool.label}** | - | N/A | - |`);
     }
 
     // Check if user enabled this pool for status bar display
@@ -208,12 +208,13 @@ function renderStatusBar() {
         const pct = Math.round(pool.daily.remainingFraction * 100);
         const timerStr = showResetTimer && pool.daily.resetTime ? ` (${formatTimeRemaining(pool.daily.resetTime)})` : '';
         poolTokens.push(`${pct}%d${timerStr}`);
+      } else {
+        // Pool is enabled by user, but not active or no quota data returned
+        poolTokens.push('N/A');
       }
     }
 
-    if (poolTokens.length > 0) {
-      parts.push(`${pool.shortLabel}: ${poolTokens.join(' ')}`);
-    }
+    parts.push(`${pool.shortLabel}: ${poolTokens.join(' ')}`);
   }
 
   if (parts.length === 0) {
@@ -267,24 +268,22 @@ async function showQuickMenu() {
       currentValue: showGemini
     },
     {
-      label: `${showGpt ? '$(check) ' : '$(circle-slash) '}GPT / Claude Pool`,
+      label: `${showGpt ? '$(check) ' : '$(circle-slash) '}Claude/GPT Pool`,
       description: 'OpenAI and Anthropic partner models',
       actionType: 'toggle',
       key: 'showGpt',
       currentValue: showGpt
-    }
-  ];
-
-  // Only show Argon toggle if it is available in this editor environment!
-  if (argonAvailable) {
-    items.push({
+    },
+    {
       label: `${showArgon ? '$(check) ' : '$(circle-slash) '}Argon Pool`,
-      description: 'Gemini 4 Argon weekly allocation',
+      description: argonAvailable
+        ? 'Gemini 4 Argon weekly allocation'
+        : 'Gemini 4 Argon (N/A in current plan)',
       actionType: 'toggle',
       key: 'showArgon',
       currentValue: showArgon
-    });
-  }
+    }
+  ];
 
   items.push(
     {
