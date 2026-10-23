@@ -127,11 +127,31 @@ function formatTimeRemaining(resetTime?: Date): string {
 }
 
 /**
+ * Converts ASCII alphanumeric text into Unicode Mathematical Sans-Serif Bold
+ * so it renders bold in VS Code's plain-text status bar.
+ */
+function toBoldText(text: string): string {
+  return text.replace(/[A-Za-z0-9]/g, (ch) => {
+    const code = ch.charCodeAt(0);
+    if (code >= 65 && code <= 90) {
+      return String.fromCodePoint(0x1d5d4 + (code - 65));
+    }
+    if (code >= 97 && code <= 122) {
+      return String.fromCodePoint(0x1d5ee + (code - 97));
+    }
+    if (code >= 48 && code <= 57) {
+      return String.fromCodePoint(0x1d7ec + (code - 48));
+    }
+    return ch;
+  });
+}
+
+/**
  * Returns a color status emoji dot based on remaining fraction.
  */
 function getStatusBadge(fraction: number): string {
-  if (fraction <= 0.15) return '🔴';
-  if (fraction <= 0.40) return '🟡';
+  if (fraction <= 0.10) return '🔴';
+  if (fraction <= 0.25) return '🟡';
   return '🟢';
 }
 
@@ -159,9 +179,10 @@ function renderStatusBar() {
   const config = vscode.workspace.getConfiguration('antigravityQuota');
   const showDaily = config.get<boolean>('showDaily', true);
   const showWeekly = config.get<boolean>('showWeekly', true);
-  const showResetTimer = config.get<boolean>('showResetTimer', false);
+  const showResetTimer = config.get<boolean>('showResetTimer', true);
   const showIcons = config.get<boolean>('showIcons', true);
   const highlightLowQuota = config.get<boolean>('highlightLowQuota', true);
+  const boldLabels = config.get<boolean>('boldLabels', true);
 
   const showGemini = config.get<boolean>('showGemini', true);
   const showGpt = config.get<boolean>('showGpt', true);
@@ -213,32 +234,28 @@ function renderStatusBar() {
 
     const poolTokens: string[] = [];
 
-    // Helper to format token with color warning badge
-    const formatToken = (fraction: number, suffix: string, resetTime?: Date) => {
+    // Format: [🟢/🟡/🔴] d/w 92% (1h 18m)
+    const formatToken = (fraction: number, windowTag: 'd' | 'w', resetTime?: Date) => {
       const pct = Math.round(fraction * 100);
       const timerStr = showResetTimer && resetTime ? ` (${formatTimeRemaining(resetTime)})` : '';
       let badge = '';
       if (highlightLowQuota) {
+        badge = `${getStatusBadge(fraction)} `;
         if (fraction <= 0.10) {
-          badge = '🔴 ';
           hasCriticalQuota = true;
-        } else if (fraction <= 0.20) {
-          badge = '🟡 ';
         }
       }
-      return `${badge}${pct}%${suffix}${timerStr}`;
+      return `${badge}${windowTag} ${pct}%${timerStr}`;
     };
 
     // Daily
     if (showDaily && pool.daily) {
-      const suffix = showWeekly && pool.weekly ? 'd' : '';
-      poolTokens.push(formatToken(pool.daily.remainingFraction, suffix, pool.daily.resetTime));
+      poolTokens.push(formatToken(pool.daily.remainingFraction, 'd', pool.daily.resetTime));
     }
 
     // Weekly
     if (showWeekly && pool.weekly) {
-      const suffix = showDaily ? 'w' : '';
-      poolTokens.push(formatToken(pool.weekly.remainingFraction, suffix, pool.weekly.resetTime));
+      poolTokens.push(formatToken(pool.weekly.remainingFraction, 'w', pool.weekly.resetTime));
     }
 
     // Fallback: If pool only has weekly (e.g. Argon) and user selected daily only, show its available quota with tag
@@ -254,7 +271,8 @@ function renderStatusBar() {
     }
 
     const shortPrefix = showIcons && pool.icon ? `${pool.icon} ` : '';
-    parts.push(`${shortPrefix}${pool.shortLabel}: ${poolTokens.join(' · ')}`);
+    const displayLabel = boldLabels ? toBoldText(pool.shortLabel) : pool.shortLabel;
+    parts.push(`${shortPrefix}${displayLabel}: ${poolTokens.join(' · ')}`);
   }
 
   if (parts.length === 0) {
@@ -287,9 +305,10 @@ async function showQuickMenu() {
   const config = vscode.workspace.getConfiguration('antigravityQuota');
   const showDaily = config.get<boolean>('showDaily', true);
   const showWeekly = config.get<boolean>('showWeekly', true);
-  const showResetTimer = config.get<boolean>('showResetTimer', false);
+  const showResetTimer = config.get<boolean>('showResetTimer', true);
   const showIcons = config.get<boolean>('showIcons', true);
   const highlightLowQuota = config.get<boolean>('highlightLowQuota', true);
+  const boldLabels = config.get<boolean>('boldLabels', true);
 
   const showGemini = config.get<boolean>('showGemini', true);
   const showGpt = config.get<boolean>('showGpt', true);
@@ -360,8 +379,15 @@ async function showQuickMenu() {
       currentValue: showIcons
     },
     {
-      label: `${highlightLowQuota ? '$(check) ' : '$(circle-slash) '}Highlight Low Quotas`,
-      description: 'Color-code warnings (🔴 / 🟡) when quota is running low',
+      label: `${boldLabels ? '$(check) ' : '$(circle-slash) '}Bold Model Names`,
+      description: 'Render model names in bold (𝗚𝗲𝗺𝗶𝗻𝗶, 𝗖𝗹𝗮𝘂𝗱𝗲/𝗚𝗣𝗧, 𝗔𝗿𝗴𝗼𝗻)',
+      actionType: 'toggle',
+      key: 'boldLabels',
+      currentValue: boldLabels
+    },
+    {
+      label: `${highlightLowQuota ? '$(check) ' : '$(circle-slash) '}Show Color Status Dots`,
+      description: 'Display status indicators (🟢 / 🟡 / 🔴) in the status bar',
       actionType: 'toggle',
       key: 'highlightLowQuota',
       currentValue: highlightLowQuota

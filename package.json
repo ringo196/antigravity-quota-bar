@@ -51,7 +51,7 @@
         },
         "antigravityQuota.showResetTimer": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Display remaining countdown timer next to quota percentages."
         },
         "antigravityQuota.showIcons": {
@@ -59,10 +59,15 @@
           "default": true,
           "description": "Display model pool icons in the status bar."
         },
+        "antigravityQuota.boldLabels": {
+          "type": "boolean",
+          "default": true,
+          "description": "Render model pool names in bold Unicode characters in the status bar."
+        },
         "antigravityQuota.highlightLowQuota": {
           "type": "boolean",
           "default": true,
-          "description": "Display color warning indicators (🔴 / 🟡) and warning background when quota is running low."
+          "description": "Display color status indicators (🟢 / 🟡 / 🔴) and warning background when quota is running low."
         },
         "antigravityQuota.showGemini": {
           "type": "boolean",
