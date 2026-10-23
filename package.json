@@ -1,0 +1,95 @@
+{
+  "name": "antigravity-quota-bar",
+  "displayName": "Antigravity Quota Status Bar",
+  "description": "Displays Google Antigravity and AI model quotas cleanly on the status bar grouped by pool.",
+  "version": "0.1.0",
+  "publisher": "local-developer",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "antigravity",
+    "quota",
+    "status bar",
+    "gemini",
+    "gpt",
+    "claude",
+    "argon"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "antigravityQuota.refresh",
+        "title": "Antigravity Quota: Refresh Now",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "antigravityQuota.showMenu",
+        "title": "Antigravity Quota: Show Menu & Details"
+      }
+    ],
+    "configuration": {
+      "title": "Antigravity Quota Status Bar",
+      "properties": {
+        "antigravityQuota.showDaily": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show daily (5-hour rolling) quota percentage."
+        },
+        "antigravityQuota.showWeekly": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show weekly quota percentage."
+        },
+        "antigravityQuota.showResetTimer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Display remaining countdown timer next to quota percentages."
+        },
+        "antigravityQuota.showGemini": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display Gemini quota pool in the status bar."
+        },
+        "antigravityQuota.showGpt": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display GPT / Claude quota pool in the status bar."
+        },
+        "antigravityQuota.showArgon": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display Argon quota pool in the status bar (when available)."
+        },
+        "antigravityQuota.refreshInterval": {
+          "type": "number",
+          "default": 60,
+          "minimum": 15,
+          "description": "Polling interval in seconds to update quota data."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.3.3"
+  }
+}
+
