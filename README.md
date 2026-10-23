@@ -1,4 +1,4 @@
-# Antigravity Quota Status Bar
+# Antigravity Quota Pools
 
 Keep an eye on your Antigravity AI quota without leaving your editor. This extension shows your model quota pools in the status bar of VS Code and Antigravity IDE, with a detailed tooltip on hover.
 

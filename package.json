@@ -1,8 +1,8 @@
 {
-  "name": "antigravity-quota-status-bar",
-  "displayName": "Antigravity Quota Status Bar",
+  "name": "antigravity-quota-pools",
+  "displayName": "Antigravity Quota Pools",
   "description": "Displays Google Antigravity and AI model quotas cleanly on the status bar grouped by pool.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "publisher": "ringo196",
   "author": "ringo196",
   "license": "MIT",
@@ -117,4 +117,3 @@
     "typescript": "^5.3.3"
   }
 }
-
