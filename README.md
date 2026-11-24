@@ -6,9 +6,8 @@ Models that share a quota are grouped into one pool, so you see one entry per po
 
 | Pool | Models |
 | --- | --- |
-| **Gemini** | Gemini Flash and Pro, all reasoning tiers |
-| **Claude & GPT** | Anthropic and OpenAI models |
-| **Argon** | Gemini 4 Argon. Hidden automatically if your editor doesn't offer it |
+| **Gemini** | Gemini and Argon models across all reasoning tiers |
+| **Claude** | Anthropic Claude models |
 
 ## Features
 
@@ -31,8 +30,7 @@ Antigravity IDE (or the Antigravity extension) must be running, because quota da
 | `antigravityQuota.showWeekly` | `true` | Show the weekly quota |
 | `antigravityQuota.showResetTimer` | `false` | Show reset countdown on the status bar |
 | `antigravityQuota.showGemini` | `true` | Show the Gemini pool |
-| `antigravityQuota.showGpt` | `true` | Show the Claude & GPT pool |
-| `antigravityQuota.showArgon` | `true` | Show the Argon pool, when available |
+| `antigravityQuota.showClaude` | `true` | Show the Claude pool |
 | `antigravityQuota.refreshInterval` | `60` | Refresh interval in seconds (minimum 15) |
 
 ## Feedback

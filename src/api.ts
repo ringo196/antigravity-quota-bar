@@ -101,6 +101,13 @@ async function postConnectRpc<T>(
   }
 }
 
+function createInitialPoolsMap(): Map<string, PoolQuota> {
+  return new Map([
+    ['gemini', { id: 'gemini', label: 'Gemini', shortLabel: 'Gemini', icon: '$(sparkle)', isAvailable: false }],
+    ['claude', { id: 'claude', label: 'Claude', shortLabel: 'Claude', icon: '$(hubot)', isAvailable: false }]
+  ]);
+}
+
 /**
  * Calls RetrieveUserQuotaSummary
  */
@@ -108,33 +115,26 @@ async function requestRetrieveUserQuotaSummary(conn: ServerConnection): Promise<
   const raw = await postConnectRpc<any>(conn, 'RetrieveUserQuotaSummary', {});
   const groups = raw?.response?.groups || raw?.groups || [];
 
-  const poolsMap: Map<string, PoolQuota> = new Map([
-    ['gemini', { id: 'gemini', label: 'Gemini Models', shortLabel: 'Gemini', icon: '$(sparkle)', isAvailable: false }],
-    ['gpt', { id: 'gpt', label: 'Claude & GPT Models', shortLabel: 'Claude/GPT', icon: '$(hubot)', isAvailable: false }],
-    ['argon', { id: 'argon', label: 'Gemini 4 Argon', shortLabel: 'Argon', icon: '$(zap)', isAvailable: false }]
-  ]);
+  const poolsMap = createInitialPoolsMap();
 
   for (const group of groups) {
     const id = (group.id || group.groupId || '').toLowerCase();
     const label = (group.displayName || group.label || group.name || '').toLowerCase();
     const desc = (group.description || '').toLowerCase();
 
+    const text = `${id} ${label} ${desc}`;
     let targetPoolId: string | null = null;
-    if (id.includes('argon') || label.includes('argon') || desc.includes('argon')) {
-      targetPoolId = 'argon';
-    } else if (id.includes('gemini') || label.includes('gemini') || desc.includes('gemini')) {
+    if (text.includes('gemini') || text.includes('argon') || text.includes('neon')) {
       targetPoolId = 'gemini';
     } else if (
-      id.includes('claude') ||
-      id.includes('gpt') ||
-      id.includes('3p') ||
-      label.includes('claude') ||
-      label.includes('gpt') ||
-      label.includes('3p') ||
-      desc.includes('claude') ||
-      desc.includes('gpt')
+      text.includes('claude') ||
+      text.includes('anthropic') ||
+      text.includes('sonnet') ||
+      text.includes('opus') ||
+      text.includes('3p') ||
+      text.includes('gpt')
     ) {
-      targetPoolId = 'gpt';
+      targetPoolId = 'claude';
     }
 
     if (!targetPoolId) {
@@ -172,9 +172,13 @@ async function requestRetrieveUserQuotaSummary(conn: ServerConnection): Promise<
       };
 
       if (bucket.window === 'weekly') {
-        pool.weekly = bucket;
+        if (!pool.weekly || bucket.remainingFraction < pool.weekly.remainingFraction) {
+          pool.weekly = bucket;
+        }
       } else {
-        pool.daily = bucket;
+        if (!pool.daily || bucket.remainingFraction < pool.daily.remainingFraction) {
+          pool.daily = bucket;
+        }
       }
     }
   }
@@ -196,11 +200,7 @@ async function requestGetUserStatus(conn: ServerConnection): Promise<QuotaSummar
     raw.cascadeModelConfigData?.clientModelConfigs ||
     [];
 
-  const poolsMap: Map<string, PoolQuota> = new Map([
-    ['gemini', { id: 'gemini', label: 'Gemini Models', shortLabel: 'Gemini', icon: '$(sparkle)', isAvailable: false }],
-    ['gpt', { id: 'gpt', label: 'Claude & GPT Models', shortLabel: 'Claude/GPT', icon: '$(hubot)', isAvailable: false }],
-    ['argon', { id: 'argon', label: 'Gemini 4 Argon', shortLabel: 'Argon', icon: '$(zap)', isAvailable: false }]
-  ]);
+  const poolsMap = createInitialPoolsMap();
 
   for (const config of configs) {
     const label = (config.label || '').toLowerCase();
@@ -208,12 +208,15 @@ async function requestGetUserStatus(conn: ServerConnection): Promise<QuotaSummar
     if (!quotaInfo) continue;
 
     let targetPoolId: string | null = null;
-    if (label.includes('argon')) {
-      targetPoolId = 'argon';
-    } else if (label.includes('gemini')) {
+    if (label.includes('gemini') || label.includes('argon') || label.includes('neon')) {
       targetPoolId = 'gemini';
-    } else if (label.includes('gpt') || label.includes('claude') || label.includes('sonnet')) {
-      targetPoolId = 'gpt';
+    } else if (
+      label.includes('claude') ||
+      label.includes('sonnet') ||
+      label.includes('opus') ||
+      label.includes('gpt')
+    ) {
+      targetPoolId = 'claude';
     }
 
     if (!targetPoolId) continue;
@@ -227,23 +230,15 @@ async function requestGetUserStatus(conn: ServerConnection): Promise<QuotaSummar
       typeof quotaInfo.remainingFraction === 'number' ? quotaInfo.remainingFraction : 1.0;
     const resetTime = quotaInfo.resetTime ? new Date(quotaInfo.resetTime) : undefined;
 
-    // In GetUserStatus, Argon is typically weekly; Gemini and GPT reflect current rolling window
-    const isWeekly = targetPoolId === 'argon';
     const bucket: QuotaBucket = {
-      window: isWeekly ? 'weekly' : 'daily',
+      window: 'daily',
       remainingFraction: fraction,
       resetTime
     };
 
-    if (isWeekly) {
-      if (!pool.weekly || pool.weekly.remainingFraction > fraction) {
-        pool.weekly = bucket;
-      }
-    } else {
-      // Deduplicate: Low/Med/High have identical quota, take the current value
-      if (!pool.daily || pool.daily.remainingFraction > fraction) {
-        pool.daily = bucket;
-      }
+    // Deduplicate: Low/Med/High have identical quota, take the current value
+    if (!pool.daily || bucket.remainingFraction < pool.daily.remainingFraction) {
+      pool.daily = bucket;
     }
   }
 

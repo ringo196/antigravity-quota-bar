@@ -26,7 +26,6 @@
     "quota",
     "status bar",
     "gemini",
-    "gpt",
     "claude",
     "argon"
   ],
@@ -84,15 +83,10 @@
           "default": true,
           "description": "Display Gemini quota pool in the status bar."
         },
-        "antigravityQuota.showGpt": {
+        "antigravityQuota.showClaude": {
           "type": "boolean",
           "default": true,
-          "description": "Display GPT / Claude quota pool in the status bar."
-        },
-        "antigravityQuota.showArgon": {
-          "type": "boolean",
-          "default": true,
-          "description": "Display Argon quota pool in the status bar (when available)."
+          "description": "Display Claude quota pool in the status bar."
         },
         "antigravityQuota.refreshInterval": {
           "type": "number",

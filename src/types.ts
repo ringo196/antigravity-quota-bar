@@ -9,7 +9,7 @@ export interface QuotaBucket {
 }
 
 export interface PoolQuota {
-  id: 'gemini' | 'gpt' | 'argon' | string;
+  id: 'gemini' | 'claude' | string;
   label: string;
   shortLabel: string;
   icon?: string;

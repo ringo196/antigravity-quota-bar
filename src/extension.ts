@@ -185,13 +185,11 @@ function renderStatusBar() {
   const boldLabels = config.get<boolean>('boldLabels', true);
 
   const showGemini = config.get<boolean>('showGemini', true);
-  const showGpt = config.get<boolean>('showGpt', true);
-  const showArgon = config.get<boolean>('showArgon', true);
+  const showClaude = config.get<boolean>('showClaude', true);
 
   const poolFilterMap: Record<string, boolean> = {
     gemini: showGemini,
-    gpt: showGpt,
-    argon: showArgon
+    claude: showClaude
   };
 
   const parts: string[] = [];
@@ -258,7 +256,7 @@ function renderStatusBar() {
       poolTokens.push(formatToken(pool.weekly.remainingFraction, 'w', pool.weekly.resetTime));
     }
 
-    // Fallback: If pool only has weekly (e.g. Argon) and user selected daily only, show its available quota with tag
+    // Fallback: If pool only has weekly and user selected daily only, show its available quota with tag
     if (poolTokens.length === 0) {
       if (pool.weekly && !pool.daily) {
         poolTokens.push(formatToken(pool.weekly.remainingFraction, 'w', pool.weekly.resetTime));
@@ -312,11 +310,7 @@ async function showQuickMenu() {
   const boldLabels = config.get<boolean>('boldLabels', true);
 
   const showGemini = config.get<boolean>('showGemini', true);
-  const showGpt = config.get<boolean>('showGpt', true);
-  const showArgon = config.get<boolean>('showArgon', true);
-
-  const argonPool = lastSummary?.pools.find((p) => p.id === 'argon');
-  const argonAvailable = argonPool?.isAvailable ?? false;
+  const showClaude = config.get<boolean>('showClaude', true);
 
   interface ActionItem extends vscode.QuickPickItem {
     actionType: 'toggle' | 'refresh' | 'settings' | 'info';
@@ -332,26 +326,17 @@ async function showQuickMenu() {
     },
     {
       label: `${showGemini ? '$(check) ' : '$(circle-slash) '}Gemini Pool`,
-      description: 'Flash and Pro reasoning tiers (Low, Med, High share this pool)',
+      description: 'Gemini and Argon models across all reasoning tiers',
       actionType: 'toggle',
       key: 'showGemini',
       currentValue: showGemini
     },
     {
-      label: `${showGpt ? '$(check) ' : '$(circle-slash) '}Claude/GPT Pool`,
-      description: 'OpenAI and Anthropic partner models',
+      label: `${showClaude ? '$(check) ' : '$(circle-slash) '}Claude Pool`,
+      description: 'Anthropic Claude models',
       actionType: 'toggle',
-      key: 'showGpt',
-      currentValue: showGpt
-    },
-    {
-      label: `${showArgon ? '$(check) ' : '$(circle-slash) '}Argon Pool`,
-      description: argonAvailable
-        ? 'Gemini 4 Argon weekly allocation'
-        : 'Gemini 4 Argon (N/A in current plan)',
-      actionType: 'toggle',
-      key: 'showArgon',
-      currentValue: showArgon
+      key: 'showClaude',
+      currentValue: showClaude
     },
     {
       label: 'DISPLAY WINDOWS & FORMATTING',
@@ -374,14 +359,14 @@ async function showQuickMenu() {
     },
     {
       label: `${showIcons ? '$(check) ' : '$(circle-slash) '}Show Model Icons`,
-      description: 'Display icons for Gemini, Claude/GPT, and Argon',
+      description: 'Display icons for Gemini and Claude',
       actionType: 'toggle',
       key: 'showIcons',
       currentValue: showIcons
     },
     {
       label: `${boldLabels ? '$(check) ' : '$(circle-slash) '}Bold Model Names`,
-      description: 'Render model names in bold (𝗚𝗲𝗺𝗶𝗻𝗶, 𝗖𝗹𝗮𝘂𝗱𝗲/𝗚𝗣𝗧, 𝗔𝗿𝗴𝗼𝗻)',
+      description: 'Render model names in bold (𝗚𝗲𝗺𝗶𝗻𝗶, 𝗖𝗹𝗮𝘂𝗱𝗲)',
       actionType: 'toggle',
       key: 'boldLabels',
       currentValue: boldLabels
