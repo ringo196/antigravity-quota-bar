@@ -72,8 +72,11 @@ function restartPolling() {
  */
 async function updateQuota(forceRediscover: boolean) {
   try {
+    const workspacePaths =
+      vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [];
+
     if (!cachedConnection || forceRediscover) {
-      cachedConnection = await discoverLanguageServer();
+      cachedConnection = await discoverLanguageServer(workspacePaths);
     }
 
     if (!cachedConnection) {
@@ -87,7 +90,7 @@ async function updateQuota(forceRediscover: boolean) {
 
     // If fetch failed, try rediscovering once
     if (!summary && !forceRediscover) {
-      cachedConnection = await discoverLanguageServer();
+      cachedConnection = await discoverLanguageServer(workspacePaths);
       if (cachedConnection) {
         summary = await fetchQuotaSummary(cachedConnection);
       }

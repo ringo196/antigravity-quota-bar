@@ -1,5 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as os from 'os';
 import * as https from 'https';
 import * as http from 'http';
@@ -42,6 +44,7 @@ async function probeServer(
           agent: isHttps ? httpsAgent : undefined
         },
         (res) => {
+          res.resume();
           resolve(res.statusCode === 200);
         }
       );
@@ -82,17 +85,195 @@ interface ProcessCandidate {
   priority: number;
 }
 
+interface HubDiscoveryFile {
+  pid?: number;
+  httpPort?: number;
+  httpsPort?: number;
+  csrfToken?: string;
+}
+
+/**
+ * Resolves the daemon discovery directory for an agy/language_server process.
+ */
+function resolveDaemonDir(commandLine: string): string {
+  const dirMatch = commandLine.match(/--app_data_dir[=\s]+(?:"([^"]+)"|'([^']+)'|(\S+))/);
+  const appDataDir = dirMatch ? dirMatch[1] || dirMatch[2] || dirMatch[3] : 'antigravity';
+  if (path.isAbsolute(appDataDir)) {
+    return path.join(appDataDir, 'daemon');
+  }
+  return path.join(os.homedir(), '.gemini', appDataDir, 'daemon');
+}
+
+/**
+ * Reads a daemon hub discovery JSON file and merges its token/ports if it belongs to this PID.
+ */
+function tryApplyHubFile(
+  filePath: string,
+  pid: number,
+  ports: number[],
+  currentToken: string
+): string {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const data = JSON.parse(raw) as HubDiscoveryFile;
+    if (!data || typeof data !== 'object') {
+      return currentToken;
+    }
+    if (typeof data.pid === 'number' && data.pid !== pid) {
+      return currentToken;
+    }
+
+    for (const candidatePort of [data.httpPort, data.httpsPort]) {
+      if (typeof candidatePort === 'number' && candidatePort > 0 && !ports.includes(candidatePort)) {
+        ports.push(candidatePort);
+      }
+    }
+
+    if (!currentToken && typeof data.csrfToken === 'string') {
+      return data.csrfToken;
+    }
+  } catch {
+    // Ignore missing or unreadable hub metadata files
+  }
+  return currentToken;
+}
+
+/**
+ * Extracts CSRF token and ports from process args, falling back to agy's daemon hub_<port>.json files.
+ */
+function resolveHubMetadata(
+  commandLine: string,
+  pid: number,
+  initialPorts: number[]
+): { csrfToken: string; ports: number[] } {
+  const ports = [...initialPorts];
+  let csrfToken = '';
+
+  const tokenMatch = commandLine.match(/--csrf_token[=\s]+([a-zA-Z0-9-]+)/);
+  if (tokenMatch) {
+    csrfToken = tokenMatch[1];
+  }
+
+  let hubPort: number | undefined;
+  const hubPortMatch = commandLine.match(/--(?:hub-)?port[=\s]+(\d+)/);
+  if (hubPortMatch) {
+    hubPort = parseInt(hubPortMatch[1], 10);
+    if (!ports.includes(hubPort)) {
+      ports.unshift(hubPort);
+    }
+  }
+
+  if (!csrfToken) {
+    const daemonDir = resolveDaemonDir(commandLine);
+    if (hubPort !== undefined) {
+      csrfToken = tryApplyHubFile(
+        path.join(daemonDir, `hub_${hubPort}.json`),
+        pid,
+        ports,
+        csrfToken
+      );
+    }
+
+    if (!csrfToken) {
+      try {
+        for (const entry of fs.readdirSync(daemonDir)) {
+          if (!entry.startsWith('hub_') || !entry.endsWith('.json')) continue;
+          csrfToken = tryApplyHubFile(path.join(daemonDir, entry), pid, ports, csrfToken);
+          if (csrfToken) break;
+        }
+      } catch {
+        // Ignore missing daemon directory
+      }
+    }
+  }
+
+  return { csrfToken, ports };
+}
+
+/**
+ * Builds a prioritized process candidate from its command line and listening ports.
+ */
+function buildCandidate(
+  pid: number,
+  commandLine: string,
+  listeningPorts: number[],
+  workspacePaths: string[]
+): ProcessCandidate | null {
+  const { csrfToken, ports } = resolveHubMetadata(commandLine, pid, listeningPorts);
+  if (ports.length === 0) {
+    return null;
+  }
+
+  const isAgy = commandLine.includes('agy') || commandLine.includes('--hub');
+  const hasMatchingWorkspace = workspacePaths.some((ws) => ws && commandLine.includes(ws));
+
+  let priority = 10;
+  if (isAgy && hasMatchingWorkspace) {
+    priority = 100;
+  } else if (isAgy) {
+    priority = 80;
+  } else if (hasMatchingWorkspace) {
+    priority = 50;
+  }
+
+  return { pid, csrfToken, ports, priority };
+}
+
+/**
+ * Probes prioritized candidates and returns the first active Connect-RPC connection.
+ */
+async function selectBestConnection(
+  candidates: ProcessCandidate[]
+): Promise<ServerConnection | null> {
+  // Sort so active workspace agy hub processes with tokens are evaluated first
+  candidates.sort((a, b) => {
+    if (b.priority !== a.priority) {
+      return b.priority - a.priority;
+    }
+    return Number(Boolean(b.csrfToken)) - Number(Boolean(a.csrfToken));
+  });
+
+  for (const candidate of candidates) {
+    for (const port of candidate.ports) {
+      const probeResult = await probeServer(port, candidate.csrfToken);
+      if (probeResult) {
+        return {
+          pid: candidate.pid,
+          port,
+          csrfToken: candidate.csrfToken,
+          isHttps: probeResult.isHttps
+        };
+      }
+    }
+  }
+
+  // Best-effort fallback if probing didn't succeed but candidate ports exist
+  if (candidates.length > 0 && candidates[0].ports.length > 0) {
+    return {
+      pid: candidates[0].pid,
+      port: candidates[0].ports[0],
+      csrfToken: candidates[0].csrfToken,
+      isHttps: false
+    };
+  }
+
+  return null;
+}
+
 /**
  * Scans local system processes to discover running Antigravity Language Server instances.
  */
-export async function discoverLanguageServer(): Promise<ServerConnection | null> {
+export async function discoverLanguageServer(
+  workspacePaths: string[] = []
+): Promise<ServerConnection | null> {
   const platform = os.platform();
+  const paths = workspacePaths.length > 0 ? workspacePaths : [process.cwd()];
 
   try {
     if (platform === 'win32') {
-      return await scanWindows();
+      return await scanWindows(paths);
     } else {
-      return await scanUnix();
+      return await scanUnix(paths);
     }
   } catch (error) {
     console.warn('[AntigravityQuota] Process discovery error:', error);
@@ -103,7 +284,7 @@ export async function discoverLanguageServer(): Promise<ServerConnection | null>
 /**
  * Scan processes on macOS / Linux
  */
-async function scanUnix(): Promise<ServerConnection | null> {
+async function scanUnix(workspacePaths: string[]): Promise<ServerConnection | null> {
   try {
     const { stdout } = await execAsync('ps -ww -ax -o pid,command');
     const lines = stdout.split('\n');
@@ -114,26 +295,14 @@ async function scanUnix(): Promise<ServerConnection | null> {
         (line.includes('language_server') || line.includes('agy') || line.includes('antigravity')) &&
         !line.includes('grep') &&
         !line.includes('/dist/extension.js') &&
-        !line.includes('node ')
+        !line.includes('node ') &&
+        !line.includes('--type=')
       ) {
         const pidMatch = line.trim().match(/^(\d+)/);
         if (!pidMatch) continue;
         const pid = parseInt(pidMatch[1], 10);
 
-        // Extract CSRF token
-        let csrfToken = '';
-        const tokenMatch = line.match(/--csrf_token[=\s]+([a-zA-Z0-9-]+)/);
-        if (tokenMatch) {
-          csrfToken = tokenMatch[1];
-        }
-
         const ports: number[] = [];
-
-        // Check if explicit hub port was passed to agy/language_server
-        const hubPortMatch = line.match(/--(?:hub-)?port[=\s]+(\d+)/);
-        if (hubPortMatch) {
-          ports.push(parseInt(hubPortMatch[1], 10));
-        }
 
         // Query listening ports for this PID using lsof
         try {
@@ -151,52 +320,14 @@ async function scanUnix(): Promise<ServerConnection | null> {
           // Ignore lsof failure
         }
 
-        if (ports.length > 0) {
-          const isAgy = line.includes('agy') || line.includes('--hub');
-          const cwd = process.cwd();
-          const hasMatchingWorkspace = cwd && line.includes(cwd);
-
-          let priority = 10;
-          if (isAgy && hasMatchingWorkspace) {
-            priority = 100;
-          } else if (isAgy) {
-            priority = 80;
-          } else if (hasMatchingWorkspace) {
-            priority = 50;
-          }
-
-          candidates.push({ pid, csrfToken, ports, priority });
+        const candidate = buildCandidate(pid, line, ports, workspacePaths);
+        if (candidate) {
+          candidates.push(candidate);
         }
       }
     }
 
-    // Sort so active workspace agy hub processes are evaluated first
-    candidates.sort((a, b) => b.priority - a.priority);
-
-    // Probe candidate processes and ports to find an active Connect-RPC server
-    for (const candidate of candidates) {
-      for (const port of candidate.ports) {
-        const probeResult = await probeServer(port, candidate.csrfToken);
-        if (probeResult) {
-          return {
-            pid: candidate.pid,
-            port,
-            csrfToken: candidate.csrfToken,
-            isHttps: probeResult.isHttps
-          };
-        }
-      }
-    }
-
-    // Best-effort fallback if probing didn't succeed but candidate ports exist
-    if (candidates.length > 0 && candidates[0].ports.length > 0) {
-      return {
-        pid: candidates[0].pid,
-        port: candidates[0].ports[0],
-        csrfToken: candidates[0].csrfToken,
-        isHttps: false
-      };
-    }
+    return await selectBestConnection(candidates);
   } catch (err) {
     console.debug('[AntigravityQuota] Unix scan failed:', err);
   }
@@ -207,7 +338,7 @@ async function scanUnix(): Promise<ServerConnection | null> {
 /**
  * Scan processes on Windows
  */
-async function scanWindows(): Promise<ServerConnection | null> {
+async function scanWindows(workspacePaths: string[]): Promise<ServerConnection | null> {
   try {
     const cmd = `powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*language_server*' -or $_.CommandLine -like '*agy*' -or $_.CommandLine -like '*antigravity*' } | Select-Object ProcessId, CommandLine | ConvertTo-Json"`;
     const { stdout } = await execAsync(cmd);
@@ -229,17 +360,7 @@ async function scanWindows(): Promise<ServerConnection | null> {
 
       if (!commandLine || !pid) continue;
 
-      let csrfToken = '';
-      const tokenMatch = commandLine.match(/--csrf_token[=\s]+([a-zA-Z0-9-]+)/);
-      if (tokenMatch) {
-        csrfToken = tokenMatch[1];
-      }
-
       const ports: number[] = [];
-      const hubPortMatch = commandLine.match(/--(?:hub-)?port[=\s]+(\d+)/);
-      if (hubPortMatch) {
-        ports.push(parseInt(hubPortMatch[1], 10));
-      }
 
       try {
         const { stdout: netstatOut } = await execAsync(`netstat -ano | findstr ${pid}`);
@@ -254,51 +375,13 @@ async function scanWindows(): Promise<ServerConnection | null> {
         // Ignore netstat failure
       }
 
-      if (ports.length > 0) {
-        const isAgy = commandLine.includes('agy') || commandLine.includes('--hub');
-        const cwd = process.cwd();
-        const hasMatchingWorkspace = cwd && commandLine.includes(cwd);
-
-        let priority = 10;
-        if (isAgy && hasMatchingWorkspace) {
-          priority = 100;
-        } else if (isAgy) {
-          priority = 80;
-        } else if (hasMatchingWorkspace) {
-          priority = 50;
-        }
-
-        candidates.push({ pid, csrfToken, ports, priority });
+      const candidate = buildCandidate(pid, commandLine, ports, workspacePaths);
+      if (candidate) {
+        candidates.push(candidate);
       }
     }
 
-    // Sort candidates by priority
-    candidates.sort((a, b) => b.priority - a.priority);
-
-    // Probe candidate processes and ports
-    for (const candidate of candidates) {
-      for (const port of candidate.ports) {
-        const probeResult = await probeServer(port, candidate.csrfToken);
-        if (probeResult) {
-          return {
-            pid: candidate.pid,
-            port,
-            csrfToken: candidate.csrfToken,
-            isHttps: probeResult.isHttps
-          };
-        }
-      }
-    }
-
-    // Best-effort fallback
-    if (candidates.length > 0 && candidates[0].ports.length > 0) {
-      return {
-        pid: candidates[0].pid,
-        port: candidates[0].ports[0],
-        csrfToken: candidates[0].csrfToken,
-        isHttps: false
-      };
-    }
+    return await selectBestConnection(candidates);
   } catch (err) {
     console.debug('[AntigravityQuota] Windows scan failed:', err);
   }

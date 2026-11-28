@@ -2,7 +2,7 @@
   "name": "antigravity-quota-pools",
   "displayName": "Antigravity Quota Pools",
   "description": "Displays Google Antigravity and AI model quotas cleanly on the status bar grouped by pool.",
-  "version": "1.0.0",
+  "version": "1.2.1",
   "publisher": "ringo196",
   "author": "ringo196",
   "license": "MIT",

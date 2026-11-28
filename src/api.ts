@@ -33,6 +33,12 @@ export async function fetchQuotaSummary(conn: ServerConnection): Promise<QuotaSu
   return null;
 }
 
+class HttpStatusError extends Error {
+  constructor(public readonly statusCode: number, message: string) {
+    super(message);
+  }
+}
+
 /**
  * Perform POST request using either HTTPS or HTTP with Connect-RPC headers.
  */
@@ -76,7 +82,12 @@ async function postConnectRpc<T>(
               reject(new Error(`Failed to parse JSON response: ${e}`));
             }
           } else {
-            reject(new Error(`Server responded with HTTP ${res.statusCode}: ${data}`));
+            reject(
+              new HttpStatusError(
+                res.statusCode || 0,
+                `Server responded with HTTP ${res.statusCode}: ${data}`
+              )
+            );
           }
         });
       });
@@ -91,10 +102,13 @@ async function postConnectRpc<T>(
       req.end();
     });
 
-  // Try configured protocol first, fallback to the other if connection fails
+  // Try configured protocol first; only fall back to the other on transport/TLS errors
   try {
     return await makeRequest(conn.isHttps);
   } catch (err) {
+    if (err instanceof HttpStatusError) {
+      throw err;
+    }
     const res = await makeRequest(!conn.isHttps);
     conn.isHttps = !conn.isHttps;
     return res;
